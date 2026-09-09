@@ -45,8 +45,20 @@ class LockAccessibilityService : AccessibilityService() {
         }
         if (!restricted) return
 
-        // Light debounce: the same foreground package can fire several window events in a row
-        // (e.g. while it's still animating in) — no need to re-post the notification each time.
+        // Kick the user out of the restricted app IMMEDIATELY, synchronously, before doing
+        // anything else. This is the piece that was missing: the notification/activity route
+        // alone has latency (post → system shows it), which leaves a window where the user can
+        // see and even tap around the restricted app, or bounce Home → tap another icon faster
+        // than the notification reappears. performGlobalAction(GLOBAL_ACTION_HOME) is instant and
+        // forces the foreground back to the launcher every single time a restricted app's window
+        // comes up — this is the same trick real screen-time/parental-control apps rely on, since
+        // third-party apps can't outright prevent a window from opening, only react to it fast
+        // enough that it never gets a chance to render/be usable.
+        performGlobalAction(GLOBAL_ACTION_HOME)
+
+        // Still show/refresh the lock screen + notification so the user sees WHY they got bounced
+        // and has a way to mark the task complete — but debounce this part only, so we're not
+        // spamming fullScreenIntent launches while GLOBAL_ACTION_HOME is firing on every event.
         val now = System.currentTimeMillis()
         if (pkg == lastPackage && now - lastTriggerAt < 800) return
         lastPackage = pkg
