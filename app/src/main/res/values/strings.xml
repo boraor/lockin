@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">LockIn</string>
+    <string name="accessibility_service_description">Lets LockIn bring its lock screen back to the front when a restricted app is opened during an active lock sequence.</string>
+</resources>
