@@ -124,10 +124,10 @@ private fun AlarmEditorSheet(
                 }) { Text("Save") }
             }
             Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                NumberStepper(hour, 0, 23) { hour = it }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                EditableNumberField(hour, 0, 23, wrap = true, display = { "%02d".format(it) }) { hour = it }
                 Text(":", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                NumberStepper(minute, 0, 59) { minute = it }
+                EditableNumberField(minute, 0, 59, wrap = true, display = { "%02d".format(it) }) { minute = it }
             }
             Spacer(Modifier.height(16.dp))
             Text("TASK DESCRIPTION", fontSize = 11.sp, fontWeight = FontWeight.Bold)
@@ -179,14 +179,5 @@ private fun AlarmEditorSheet(
             onDismiss = { showAppPicker = false },
             onSave = { picked -> restricted = picked; allApps = false; showAppPicker = false }
         )
-    }
-}
-
-@Composable
-private fun NumberStepper(value: Int, min: Int, max: Int, onChange: (Int) -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        IconButton(onClick = { onChange(if (value - 1 < min) max else value - 1) }) { Text("–") }
-        Text("%02d".format(value), fontSize = 20.sp, fontWeight = FontWeight.Bold)
-        IconButton(onClick = { onChange(if (value + 1 > max) min else value + 1) }) { Text("+") }
     }
 }

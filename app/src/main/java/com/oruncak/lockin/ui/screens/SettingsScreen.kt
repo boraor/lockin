@@ -3,6 +3,7 @@ package com.oruncak.lockin.ui.screens
 import android.content.Intent
 import android.provider.Settings
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -22,6 +23,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.oruncak.lockin.data.Repository
+import com.oruncak.lockin.util.isAccessibilityServiceEnabled
 
 @Composable
 fun SettingsScreen(repo: Repository, onSettingsChanged: () -> Unit) {
@@ -30,8 +32,6 @@ fun SettingsScreen(repo: Repository, onSettingsChanged: () -> Unit) {
     val account by repo.account.collectAsState()
     var showAuth by remember { mutableStateOf(false) }
     var showExemptPicker by remember { mutableStateOf(false) }
-    var editingWarn by remember { mutableStateOf(false) }
-    var warnDraft by remember(settings.warnBeforeMinutes) { mutableStateOf(settings.warnBeforeMinutes.toString()) }
 
     Column(
         Modifier.fillMaxSize().padding(20.dp).verticalScroll(rememberScrollState())
@@ -66,39 +66,12 @@ fun SettingsScreen(repo: Repository, onSettingsChanged: () -> Unit) {
                     Switch(checked = true, onCheckedChange = {})
                 }
                 SettingsRow("Warn me before", "Minutes ahead of the lock time") {
-                    if (editingWarn) {
-                        OutlinedTextField(
-                            value = warnDraft,
-                            onValueChange = { warnDraft = it.filter { c -> c.isDigit() }.take(3) },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.width(72.dp),
-                            suffix = { Text("min") },
-                            trailingIcon = null
-                        )
-                        LaunchedEffect(Unit) { /* commit happens on Done below */ }
-                        IconButton(onClick = {
-                            val v = warnDraft.toIntOrNull()?.coerceIn(1, 180) ?: settings.warnBeforeMinutes
-                            repo.updateSettings { it.copy(warnBeforeMinutes = v) }
-                            onSettingsChanged()
-                            editingWarn = false
-                        }) { Text("✓") }
-                    } else {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.clickable { editingWarn = true }
-                        ) {
-                            IconButton(onClick = {
-                                val v = (settings.warnBeforeMinutes - 1).coerceAtLeast(1)
-                                repo.updateSettings { it.copy(warnBeforeMinutes = v) }; onSettingsChanged()
-                            }) { Text("–") }
-                            Text("${settings.warnBeforeMinutes} min", fontWeight = FontWeight.Bold)
-                            IconButton(onClick = {
-                                val v = (settings.warnBeforeMinutes + 1).coerceAtMost(180)
-                                repo.updateSettings { it.copy(warnBeforeMinutes = v) }; onSettingsChanged()
-                            }) { Text("+") }
-                        }
+                    EditableNumberField(
+                        value = settings.warnBeforeMinutes, min = 1, max = 180,
+                        display = { "$it min" }
+                    ) { v ->
+                        repo.updateSettings { it.copy(warnBeforeMinutes = v) }
+                        onSettingsChanged()
                     }
                 }
                 SettingsRow("Second reminder", "Repeat the warning 1 minute before enforcement") {
@@ -152,23 +125,58 @@ fun SettingsScreen(repo: Repository, onSettingsChanged: () -> Unit) {
             }
         }
         Spacer(Modifier.height(6.dp))
-        OutlinedButton(
-            onClick = {
-                context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) { Text("Enable LockIn in Accessibility settings") }
-        Text(
-            "Required once so LockIn can bring the lock screen back if a restricted app is opened.",
-            fontSize = 11.sp, modifier = Modifier.padding(top = 6.dp, bottom = 6.dp)
-        )
-
-        SectionLabel("Enforcement")
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(horizontal = 14.dp)) {
-                SettingsRow("Strict lock mode", "Disables emergency bypass during enforcer hours") {
-                    Switch(checked = settings.strictLockMode, onCheckedChange = { v -> repo.updateSettings { it.copy(strictLockMode = v) } })
+        var accessibilityOn by remember { mutableStateOf(isAccessibilityServiceEnabled(context)) }
+        val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+        DisposableEffect(lifecycleOwner) {
+            val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+                if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                    accessibilityOn = isAccessibilityServiceEnabled(context)
                 }
+            }
+            lifecycleOwner.lifecycle.addObserver(observer)
+            onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        }
+        Card(
+            Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = if (accessibilityOn) MaterialTheme.colorScheme.tertiary.copy(alpha = 0.12f)
+                else MaterialTheme.colorScheme.error.copy(alpha = 0.12f)
+            )
+        ) {
+            Column(Modifier.padding(14.dp)) {
+                Text(
+                    if (accessibilityOn) "Locking is active" else "Locking is NOT active yet",
+                    fontWeight = FontWeight.Bold, fontSize = 14.sp,
+                    color = if (accessibilityOn) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.error
+                )
+                Spacer(Modifier.height(4.dp))
+                if (accessibilityOn) {
+                    Text("LockIn's Accessibility service is enabled — restricted apps will be blocked during a lock.", fontSize = 12.sp)
+                } else {
+                    Text(
+                        "Without this, apps never actually get blocked. On Android 13+, sideloaded apps hide this " +
+                            "permission at first — tap below, then:\n" +
+                            "1. Open LockIn's app info (⋮ menu → App info, or long-press the icon).\n" +
+                            "2. Tap the ⋮ menu top-right → \"Allow restricted settings\".\n" +
+                            "3. Then go to Accessibility → Downloaded apps → LockIn → turn it on.",
+                        fontSize = 12.sp
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+                Button(
+                    onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Open Accessibility settings") }
+            }
+        }
+
+        SectionLabel("Habit grid colors")
+        Text("Used on the Streaks tab: none/some/all of that day's tasks completed.", fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                ColorPickerRow("None done", settings.gridNoneColor) { c -> repo.updateSettings { it.copy(gridNoneColor = c) } }
+                ColorPickerRow("Some done", settings.gridPartialColor) { c -> repo.updateSettings { it.copy(gridPartialColor = c) } }
+                ColorPickerRow("All done", settings.gridAllColor) { c -> repo.updateSettings { it.copy(gridAllColor = c) } }
             }
         }
         Spacer(Modifier.height(40.dp))
@@ -189,6 +197,35 @@ fun SettingsScreen(repo: Repository, onSettingsChanged: () -> Unit) {
                 showExemptPicker = false
             }
         )
+    }
+}
+
+private val swatchPalette = listOf(
+    0xFFE5584FL, 0xFFE8A33DL, 0xFFF2C94CL, 0xFF3FBF83L, 0xFF4E8DF0L,
+    0xFF9B59B6L, 0xFFEC7FA9L, 0xFF5C6470L
+)
+
+@Composable
+private fun ColorPickerRow(label: String, current: Long, onPick: (Long) -> Unit) {
+    Column {
+        Text(label, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            swatchPalette.forEach { hex ->
+                val selected = hex == current
+                Box(
+                    Modifier
+                        .size(28.dp)
+                        .clip(androidx.compose.foundation.shape.CircleShape)
+                        .background(androidx.compose.ui.graphics.Color(hex))
+                        .then(
+                            if (selected) Modifier.border(
+                                2.dp, MaterialTheme.colorScheme.onSurface, androidx.compose.foundation.shape.CircleShape
+                            ) else Modifier
+                        )
+                        .clickable { onPick(hex) }
+                )
+            }
+        }
     }
 }
 

@@ -70,8 +70,8 @@ object NotificationHelper {
         )
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_lock_lock)
-            .setContentTitle("Device access restricted")
-            .setContentText("Complete \"$label\" to release the lock.")
+            .setContentTitle("Blocked by LockIn")
+            .setContentText("This app is currently blocked by LockIn. Finish \"$label\" to unlock.")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setOngoing(true)
@@ -80,7 +80,13 @@ object NotificationHelper {
             .build()
         val nm = context.getSystemService(NotificationManager::class.java)
         nm.notify(2000 + alarmId.toInt(), notification)
-        context.startActivity(fullScreenIntent)
+        // Best-effort direct launch — the OS blocks background activity starts on newer Android
+        // in some states, in which case the notification's fullScreenIntent still shows it.
+        try {
+            context.startActivity(fullScreenIntent)
+        } catch (e: Exception) {
+            // Ignored: the high-priority full-screen notification above is the fallback.
+        }
     }
 
     fun clear(context: Context, alarmId: Long) {

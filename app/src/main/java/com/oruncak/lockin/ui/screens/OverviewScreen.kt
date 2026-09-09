@@ -25,8 +25,11 @@ import java.util.Calendar
 @Composable
 fun OverviewScreen(repo: Repository) {
     val alarms by repo.alarms.collectAsState()
+    val log by repo.completionLog.collectAsState()
     val lockEngaged by remember { derivedStateOf { repo.lockEngaged } }
     val enabled = alarms.filter { it.enabled }.sortedBy { it.hour * 60 + it.minute }
+    val streak = remember(alarms, log) { repo.currentStreak() }
+    val completedToday = log[repo.todayKey()] ?: emptySet()
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(20.dp),
@@ -59,7 +62,7 @@ fun OverviewScreen(repo: Repository) {
                 ) {
                     Column {
                         Text("CURRENT STREAK", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        Text("18 days", fontSize = 32.sp, fontWeight = FontWeight.Bold)
+                        Text("$streak day${if (streak == 1) "" else "s"}", fontSize = 32.sp, fontWeight = FontWeight.Bold)
                         Text("Next lock sequence · ${nextLabel(enabled)}", fontSize = 12.sp)
                     }
                     Box(
@@ -70,19 +73,22 @@ fun OverviewScreen(repo: Repository) {
             }
         }
         item { Text("TODAY'S LOCK SEQUENCE", fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp)) }
-        items(enabled) { alarm -> TaskRow(alarm) }
+        items(enabled) { alarm -> TaskRow(alarm, completedToday.contains(alarm.id)) }
     }
 }
 
 @Composable
-private fun TaskRow(alarm: AlarmItem) {
+private fun TaskRow(alarm: AlarmItem, completed: Boolean) {
     Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
         Row(
             Modifier.padding(14.dp).fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
+            Icon(
+                Icons.Filled.CheckCircle, contentDescription = null,
+                tint = if (completed) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.outline
+            )
             Column(Modifier.weight(1f)) {
                 Text(alarm.label, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 Text(

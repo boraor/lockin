@@ -15,6 +15,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.oruncak.lockin.data.Repository
@@ -36,6 +37,7 @@ class LockActivity : ComponentActivity() {
         const val EXTRA_MODE = "extra_mode"
         const val EXTRA_LABEL = "extra_label"
         const val EXTRA_ALARM_ID = "extra_alarm_id"
+        const val EXTRA_BLOCKED_PACKAGE = "extra_blocked_package"
         const val MODE_WARNING = "warning"
         const val MODE_LOCKED = "locked"
     }
@@ -58,9 +60,8 @@ class LockActivity : ComponentActivity() {
         setContent {
             val settings by repo.settings.collectAsState()
             LockInTheme(appearance = settings.appearance) {
-                var currentMode by remember { mutableStateOf(mode) }
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    if (currentMode == MODE_WARNING) {
+                    if (mode == MODE_WARNING) {
                         WarningScreen(
                             label = label,
                             warnMinutes = settings.warnBeforeMinutes,
@@ -70,7 +71,6 @@ class LockActivity : ComponentActivity() {
                     } else {
                         RestrictedScreen(
                             label = label,
-                            strict = settings.strictLockMode,
                             onComplete = { finishLock(alarmId) }
                         )
                     }
@@ -81,16 +81,20 @@ class LockActivity : ComponentActivity() {
 
     private fun finishLock(alarmId: Long) {
         val repo = Repository.get(this)
+        if (alarmId != -1L) repo.markAlarmCompleted(alarmId)
         repo.lockEngaged = false
         repo.activeLockLabel = ""
+        repo.activeLockAlarmId = -1
         NotificationHelper.clear(this, alarmId)
         finish()
     }
 
     // Enforced lock ignores the system back gesture/button — only "mark complete" exits.
+    @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         val mode = intent.getStringExtra(EXTRA_MODE)
         if (mode == MODE_LOCKED) return
+        @Suppress("DEPRECATION")
         super.onBackPressed()
     }
 }
@@ -120,7 +124,7 @@ private fun WarningScreen(label: String, warnMinutes: Int, onComplete: () -> Uni
             "%d:%02d".format(secondsLeft / 60, secondsLeft % 60),
             fontSize = 44.sp, fontWeight = FontWeight.Bold
         )
-        Text("Seconds remaining before enforcement locks this device", fontSize = 13.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        Text("Seconds remaining before enforcement locks this device", fontSize = 13.sp, textAlign = TextAlign.Center)
         Spacer(Modifier.height(28.dp))
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp)) {
@@ -140,7 +144,7 @@ private fun WarningScreen(label: String, warnMinutes: Int, onComplete: () -> Uni
 }
 
 @Composable
-private fun RestrictedScreen(label: String, strict: Boolean, onComplete: () -> Unit) {
+private fun RestrictedScreen(label: String, onComplete: () -> Unit) {
     Column(
         modifier = Modifier.fillMaxSize().padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -151,8 +155,10 @@ private fun RestrictedScreen(label: String, strict: Boolean, onComplete: () -> U
             contentAlignment = Alignment.Center
         ) { Icon(Icons.Filled.Lock, contentDescription = null, tint = Red, modifier = Modifier.size(40.dp)) }
         Spacer(Modifier.height(20.dp))
-        Text("SYSTEM ENFORCED", color = Red, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-        Text("Device access restricted", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text(
+            "This app is currently blocked by LockIn. Finish your tasks!",
+            fontSize = 20.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center
+        )
         Spacer(Modifier.height(24.dp))
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp)) {
@@ -163,10 +169,6 @@ private fun RestrictedScreen(label: String, strict: Boolean, onComplete: () -> U
         Spacer(Modifier.height(24.dp))
         Button(onClick = onComplete, modifier = Modifier.fillMaxWidth().height(52.dp)) {
             Text("Mark complete & release")
-        }
-        if (!strict) {
-            Spacer(Modifier.height(12.dp))
-            Text("Emergency bypass available · 5 min lock-out", fontSize = 11.sp)
         }
     }
 }

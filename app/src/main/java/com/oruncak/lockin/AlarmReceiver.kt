@@ -21,6 +21,7 @@ class AlarmReceiver : BroadcastReceiver() {
             TYPE_LOCK -> {
                 repo.lockEngaged = true
                 repo.activeLockLabel = label
+                repo.activeLockAlarmId = alarmId
                 NotificationHelper.showLocked(context, alarmId, label)
             }
         }

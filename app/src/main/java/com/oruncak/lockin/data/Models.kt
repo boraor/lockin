@@ -18,13 +18,19 @@ data class AppEntry(
     val label: String
 )
 
+/** Habit-grid day status, derived from the completion log — never stored directly. */
+enum class DayStatus { EMPTY, NONE_DONE, PARTIAL, ALL_DONE }
+
 data class LockInSettings(
     val warnBeforeMinutes: Int = 5,
     val secondReminder: Boolean = false,
     val dimOnLock: Boolean = false,
-    val strictLockMode: Boolean = true,
     val appearance: String = "system", // "system" | "light" | "dark"
-    val exemptPackages: Set<String> = emptySet()
+    val exemptPackages: Set<String> = emptySet(),
+    // Habit-grid colors, stored as ARGB ints so they're user-changeable in Settings.
+    val gridNoneColor: Long = 0xFFE5584F,   // red   — scheduled tasks, zero completed
+    val gridPartialColor: Long = 0xFFE8A33D, // amber — some but not all completed
+    val gridAllColor: Long = 0xFF3FBF83     // green — every scheduled task completed
 )
 
 data class Account(

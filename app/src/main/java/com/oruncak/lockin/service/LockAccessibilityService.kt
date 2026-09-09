@@ -23,7 +23,7 @@ class LockAccessibilityService : AccessibilityService() {
         if (!repo.lockEngaged) return
 
         val settings = repo.settings.value
-        val activeAlarm = repo.alarms.value.firstOrNull { it.label == repo.activeLockLabel }
+        val activeAlarm = repo.alarms.value.firstOrNull { it.id == repo.activeLockAlarmId }
         val restricted = when {
             settings.exemptPackages.contains(pkg) -> false
             activeAlarm == null -> true
@@ -35,6 +35,8 @@ class LockAccessibilityService : AccessibilityService() {
             val intent = Intent(this, LockActivity::class.java).apply {
                 putExtra(LockActivity.EXTRA_MODE, LockActivity.MODE_LOCKED)
                 putExtra(LockActivity.EXTRA_LABEL, repo.activeLockLabel)
+                putExtra(LockActivity.EXTRA_ALARM_ID, repo.activeLockAlarmId)
+                putExtra(LockActivity.EXTRA_BLOCKED_PACKAGE, pkg)
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             }
             startActivity(intent)
