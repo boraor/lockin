@@ -2,11 +2,9 @@ package com.oruncak.lockin.ui.screens
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -27,8 +25,8 @@ import androidx.compose.ui.unit.sp
 
 /**
  * A number that steps with –/+ but can also be tapped to type an exact value directly.
- * Width auto-sizes to the content (IntrinsicSize.Min) so a 3-digit value never gets clipped
- * the way a hard-coded narrow width would.
+ * The edit field uses a fixed comfortable width (not IntrinsicSize — that fights Compose's
+ * text field layout and stretches unpredictably) sized generously enough for up to 4 digits.
  *
  * @param display how to render the committed value, e.g. { "$it min" } or { "%02d".format(it) }.
  */
@@ -52,7 +50,7 @@ fun EditableNumberField(
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 textStyle = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.widthIn(min = 64.dp).width(IntrinsicSize.Min)
+                modifier = Modifier.width(84.dp)
             )
             IconButton(onClick = {
                 val v = draft.toIntOrNull()?.coerceIn(min, max) ?: value

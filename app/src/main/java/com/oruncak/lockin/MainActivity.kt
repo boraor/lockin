@@ -36,6 +36,7 @@ import com.oruncak.lockin.ui.screens.SettingsScreen
 import com.oruncak.lockin.ui.screens.StreaksScreen
 import com.oruncak.lockin.ui.theme.LockInTheme
 import com.oruncak.lockin.util.isAccessibilityServiceEnabled
+import com.oruncak.lockin.util.isIgnoringBatteryOptimizations
 
 private data class Tab(val route: String, val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector)
 
@@ -85,12 +86,14 @@ class MainActivity : ComponentActivity() {
 private fun RequireAccessibilityGate(content: @Composable () -> Unit) {
     val context = LocalContext.current
     var granted by remember { mutableStateOf(isAccessibilityServiceEnabled(context)) }
+    var batteryExempt by remember { mutableStateOf(isIgnoringBatteryOptimizations(context)) }
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 granted = isAccessibilityServiceEnabled(context)
+                batteryExempt = isIgnoringBatteryOptimizations(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -101,19 +104,35 @@ private fun RequireAccessibilityGate(content: @Composable () -> Unit) {
         content()
     } else {
         AccessibilityRequiredScreen(
+            batteryExempt = batteryExempt,
             onOpenSettings = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
             onOpenAppInfo = {
                 context.startActivity(
                     Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
                         .setData(android.net.Uri.parse("package:${context.packageName}"))
                 )
+            },
+            onRequestBatteryExemption = {
+                try {
+                    context.startActivity(
+                        Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                            .setData(android.net.Uri.parse("package:${context.packageName}"))
+                    )
+                } catch (e: Exception) {
+                    context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                }
             }
         )
     }
 }
 
 @Composable
-private fun AccessibilityRequiredScreen(onOpenSettings: () -> Unit, onOpenAppInfo: () -> Unit) {
+private fun AccessibilityRequiredScreen(
+    batteryExempt: Boolean,
+    onOpenSettings: () -> Unit,
+    onOpenAppInfo: () -> Unit,
+    onRequestBatteryExemption: () -> Unit
+) {
     Surface(Modifier.fillMaxSize()) {
         Column(
             Modifier.fillMaxSize().padding(32.dp),
@@ -157,6 +176,26 @@ private fun AccessibilityRequiredScreen(onOpenSettings: () -> Unit, onOpenAppInf
             Spacer(Modifier.height(10.dp))
             Button(onClick = onOpenSettings, modifier = Modifier.fillMaxWidth().height(50.dp)) {
                 Text("Open Accessibility settings")
+            }
+
+            if (!batteryExempt) {
+                Spacer(Modifier.height(24.dp))
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text("RECOMMENDED: DISABLE BATTERY OPTIMIZATION", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "Some phones (Samsung, Xiaomi, OnePlus, and others) kill background apps to " +
+                                "save battery — this can silently stop LockIn from re-locking after the " +
+                                "first time. Exempting LockIn avoids that.",
+                            fontSize = 13.sp
+                        )
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                OutlinedButton(onClick = onRequestBatteryExemption, modifier = Modifier.fillMaxWidth().height(50.dp)) {
+                    Text("Disable battery optimization for LockIn")
+                }
             }
         }
     }

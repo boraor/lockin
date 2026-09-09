@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.oruncak.lockin.data.Repository
 import com.oruncak.lockin.util.isAccessibilityServiceEnabled
+import com.oruncak.lockin.util.isIgnoringBatteryOptimizations
 
 @Composable
 fun SettingsScreen(repo: Repository, onSettingsChanged: () -> Unit) {
@@ -126,11 +127,13 @@ fun SettingsScreen(repo: Repository, onSettingsChanged: () -> Unit) {
         }
         Spacer(Modifier.height(6.dp))
         var accessibilityOn by remember { mutableStateOf(isAccessibilityServiceEnabled(context)) }
+        var batteryExempt by remember { mutableStateOf(isIgnoringBatteryOptimizations(context)) }
         val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
         DisposableEffect(lifecycleOwner) {
             val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
                 if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
                     accessibilityOn = isAccessibilityServiceEnabled(context)
+                    batteryExempt = isIgnoringBatteryOptimizations(context)
                 }
             }
             lifecycleOwner.lifecycle.addObserver(observer)
@@ -167,6 +170,43 @@ fun SettingsScreen(repo: Repository, onSettingsChanged: () -> Unit) {
                     onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("Open Accessibility settings") }
+            }
+        }
+
+        if (!batteryExempt) {
+            Spacer(Modifier.height(6.dp))
+            Card(
+                Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.error.copy(alpha = 0.12f))
+            ) {
+                Column(Modifier.padding(14.dp)) {
+                    Text(
+                        "Battery optimization may kill locking",
+                        fontWeight = FontWeight.Bold, fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Some phones (Samsung, Xiaomi, OnePlus, and others) kill background apps to save " +
+                            "battery, which can silently stop LockIn from re-locking after the first time. " +
+                            "Exempt LockIn to keep it reliable.",
+                        fontSize = 12.sp
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Button(
+                        onClick = {
+                            try {
+                                context.startActivity(
+                                    Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                                        .setData(android.net.Uri.parse("package:${context.packageName}"))
+                                )
+                            } catch (e: Exception) {
+                                context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Disable battery optimization for LockIn") }
+                }
             }
         }
 

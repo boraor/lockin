@@ -1,22 +1,35 @@
 package com.oruncak.lockin.service
 
 import android.accessibilityservice.AccessibilityService
-import android.content.Intent
 import android.view.accessibility.AccessibilityEvent
-import com.oruncak.lockin.LockActivity
+import com.oruncak.lockin.NotificationHelper
 import com.oruncak.lockin.data.Repository
 
 /**
- * While a lock is engaged, watches for the foreground app changing to something outside the
- * current alarm's restricted scope (or outside the exemption list) and brings LockActivity
- * back to the front. Requires the user to enable it once under
- * Settings > Accessibility > Downloaded apps > LockIn (Android won't let an app grant this
- * to itself — that's a deliberate OS restriction).
+ * While a lock is engaged, watches for the foreground window changing to something outside the
+ * current alarm's scope (or outside the exemption list) and re-shows the lock screen — including
+ * when the user presses Home, since the launcher itself counts as "an app" for an all-apps lock.
+ *
+ * Re-showing goes through NotificationHelper's high-priority full-screen-intent notification
+ * rather than calling startActivity directly from here: a bound service calling startActivity
+ * from the background can get silently blocked by Android's background-activity-start
+ * restrictions on some OS versions, whereas a fullScreenIntent notification posted by the app's
+ * own process is reliably honored. That mismatch — the first lock working (it's notification-
+ * driven) but re-locks after Home/app-switch doing nothing (they were direct startActivity calls)
+ * — is exactly the bug this fixes.
+ *
+ * Requires the user to enable this service once under Settings > Accessibility > Downloaded
+ * apps > LockIn, and to exempt LockIn from battery optimization — several OEMs (Samsung, Xiaomi,
+ * OnePlus, etc.) kill background accessibility services under aggressive battery management,
+ * which looks identical to "the lock stopped working."
  */
 class LockAccessibilityService : AccessibilityService() {
 
+    private var lastTriggerAt = 0L
+    private var lastPackage: String? = null
+
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        val pkg = event?.packageName?.toString() ?: return
+        val pkg = (event?.packageName?.toString() ?: rootInActiveWindow?.packageName?.toString()) ?: return
         if (pkg == packageName) return
 
         val repo = Repository.get(this)
@@ -30,17 +43,16 @@ class LockAccessibilityService : AccessibilityService() {
             activeAlarm.allApps -> true
             else -> activeAlarm.restrictedPackages.contains(pkg)
         }
+        if (!restricted) return
 
-        if (restricted) {
-            val intent = Intent(this, LockActivity::class.java).apply {
-                putExtra(LockActivity.EXTRA_MODE, LockActivity.MODE_LOCKED)
-                putExtra(LockActivity.EXTRA_LABEL, repo.activeLockLabel)
-                putExtra(LockActivity.EXTRA_ALARM_ID, repo.activeLockAlarmId)
-                putExtra(LockActivity.EXTRA_BLOCKED_PACKAGE, pkg)
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            }
-            startActivity(intent)
-        }
+        // Light debounce: the same foreground package can fire several window events in a row
+        // (e.g. while it's still animating in) — no need to re-post the notification each time.
+        val now = System.currentTimeMillis()
+        if (pkg == lastPackage && now - lastTriggerAt < 800) return
+        lastPackage = pkg
+        lastTriggerAt = now
+
+        NotificationHelper.showLocked(this, repo.activeLockAlarmId, repo.activeLockLabel)
     }
 
     override fun onInterrupt() { /* no-op */ }

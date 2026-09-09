@@ -36,6 +36,12 @@ object AlarmScheduler {
         context: Context, am: AlarmManager, atMillis: Long,
         alarmId: Long, label: String, type: String
     ) {
+        // Safety net: never arm an alarm for a time that's already passed (or right now) — that
+        // makes AlarmManager fire it immediately, which is how a rapid-repeat notification loop
+        // happens if something ever reschedules mid-window. Just skip it; the next full
+        // scheduleNextOccurrence() call will compute a correct future time instead.
+        if (atMillis <= System.currentTimeMillis()) return
+
         val intent = Intent(context, AlarmReceiver::class.java).apply {
             action = type
             putExtra(AlarmReceiver.EXTRA_ALARM_ID, alarmId)
