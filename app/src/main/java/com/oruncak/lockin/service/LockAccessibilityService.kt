@@ -2,6 +2,7 @@ package com.oruncak.lockin.service
 
 import android.accessibilityservice.AccessibilityService
 import android.view.accessibility.AccessibilityEvent
+import android.widget.Toast
 import com.oruncak.lockin.NotificationHelper
 import com.oruncak.lockin.data.Repository
 
@@ -54,6 +55,10 @@ class LockAccessibilityService : AccessibilityService() {
         // comes up — this is the same trick real screen-time/parental-control apps rely on, since
         // third-party apps can't outright prevent a window from opening, only react to it fast
         // enough that it never gets a chance to render/be usable.
+        // TEMPORARY debug visibility: makes detection observable without needing adb/logcat.
+        // Remove once we've confirmed the service is actually firing on real devices.
+        Toast.makeText(this, "LockIn: blocking $pkg", Toast.LENGTH_SHORT).show()
+
         performGlobalAction(GLOBAL_ACTION_HOME)
 
         // Still show/refresh the lock screen + notification so the user sees WHY they got bounced

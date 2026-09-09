@@ -22,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.oruncak.lockin.NotificationHelper
 import com.oruncak.lockin.data.Repository
 import com.oruncak.lockin.util.isAccessibilityServiceEnabled
 import com.oruncak.lockin.util.isIgnoringBatteryOptimizations
@@ -209,6 +210,23 @@ fun SettingsScreen(repo: Repository, onSettingsChanged: () -> Unit) {
                 }
             }
         }
+
+        SectionLabel("Debug")
+        Text(
+            "Triggers a lock right now, for testing without waiting for a real alarm. Open a " +
+                "non-exempt app afterward and watch whether you get bounced back to Home.",
+            fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp)
+        )
+        OutlinedButton(
+            onClick = {
+                repo.lockEngaged = true
+                repo.activeLockLabel = "Test Lock"
+                repo.activeLockAlarmId = -1L
+                NotificationHelper.showLocked(context, -1L, "Test Lock")
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) { Text("Test Lock Now") }
+        Spacer(Modifier.height(20.dp))
 
         SectionLabel("Habit grid colors")
         Text("Used on the Streaks tab: none/some/all of that day's tasks completed.", fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
