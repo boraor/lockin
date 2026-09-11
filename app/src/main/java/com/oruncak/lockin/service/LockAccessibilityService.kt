@@ -1,40 +1,54 @@
 package com.oruncak.lockin.service
 
 import android.accessibilityservice.AccessibilityService
+import android.graphics.Color
+import android.graphics.PixelFormat
+import android.view.Gravity as ViewGravity
+import android.view.View
+import android.view.ViewGroup
+import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
+import android.widget.Button
+import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.TextView
 import android.widget.Toast
 import com.oruncak.lockin.NotificationHelper
 import com.oruncak.lockin.data.Repository
 
 /**
  * While a lock is engaged, watches for the foreground window changing to something outside the
- * current alarm's scope (or outside the exemption list) and re-shows the lock screen — including
- * when the user presses Home, since the launcher itself counts as "an app" for an all-apps lock.
+ * current alarm's scope (or outside the exemption list) and blocks it.
  *
- * Re-showing goes through NotificationHelper's high-priority full-screen-intent notification
- * rather than calling startActivity directly from here: a bound service calling startActivity
- * from the background can get silently blocked by Android's background-activity-start
- * restrictions on some OS versions, whereas a fullScreenIntent notification posted by the app's
- * own process is reliably honored. That mismatch — the first lock working (it's notification-
- * driven) but re-locks after Home/app-switch doing nothing (they were direct startActivity calls)
- * — is exactly the bug this fixes.
- *
- * Requires the user to enable this service once under Settings > Accessibility > Downloaded
- * apps > LockIn, and to exempt LockIn from battery optimization — several OEMs (Samsung, Xiaomi,
- * OnePlus, etc.) kill background accessibility services under aggressive battery management,
- * which looks identical to "the lock stopped working."
+ * IMPORTANT: earlier versions tried performGlobalAction(GLOBAL_ACTION_HOME) to bounce the user
+ * back to the launcher. That call succeeds, but "go home" doesn't stop the user from immediately
+ * relaunching the same app — GLOBAL_ACTION_HOME is a navigation action, not a block. What actually
+ * prevents access is drawing a full-screen overlay window directly on top of the restricted app,
+ * using the special TYPE_ACCESSIBILITY_OVERLAY window type: accessibility services are allowed to
+ * create these without SYSTEM_ALERT_WINDOW permission, and because it sits on top of everything
+ * and is opaque, every touch the user makes lands on OUR window, not the app underneath. That is
+ * how real screen-time / focus apps actually block access — this replaces the Home-bounce attempt.
  */
 class LockAccessibilityService : AccessibilityService() {
 
     private var lastTriggerAt = 0L
     private var lastPackage: String? = null
+    private var overlayView: View? = null
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val pkg = (event?.packageName?.toString() ?: rootInActiveWindow?.packageName?.toString()) ?: return
-        if (pkg == packageName) return
 
         val repo = Repository.get(this)
-        if (!repo.lockEngaged) return
+
+        if (!repo.lockEngaged) {
+            removeOverlay()
+            return
+        }
+
+        if (pkg == packageName) {
+            // Our own app (including the overlay's own window) — never block ourselves.
+            return
+        }
 
         val settings = repo.settings.value
         val activeAlarm = repo.alarms.value.firstOrNull { it.id == repo.activeLockAlarmId }
@@ -44,33 +58,104 @@ class LockAccessibilityService : AccessibilityService() {
             activeAlarm.allApps -> true
             else -> activeAlarm.restrictedPackages.contains(pkg)
         }
-        if (!restricted) return
+        if (!restricted) {
+            removeOverlay()
+            return
+        }
 
-        // Kick the user out of the restricted app IMMEDIATELY, synchronously, before doing
-        // anything else. This is the piece that was missing: the notification/activity route
-        // alone has latency (post → system shows it), which leaves a window where the user can
-        // see and even tap around the restricted app, or bounce Home → tap another icon faster
-        // than the notification reappears. performGlobalAction(GLOBAL_ACTION_HOME) is instant and
-        // forces the foreground back to the launcher every single time a restricted app's window
-        // comes up — this is the same trick real screen-time/parental-control apps rely on, since
-        // third-party apps can't outright prevent a window from opening, only react to it fast
-        // enough that it never gets a chance to render/be usable.
-        // TEMPORARY debug visibility: makes detection observable without needing adb/logcat.
-        // Remove once we've confirmed the service is actually firing on real devices.
         Toast.makeText(this, "LockIn: blocking $pkg", Toast.LENGTH_SHORT).show()
+        showOverlay(repo)
 
-        performGlobalAction(GLOBAL_ACTION_HOME)
-
-        // Still show/refresh the lock screen + notification so the user sees WHY they got bounced
-        // and has a way to mark the task complete — but debounce this part only, so we're not
-        // spamming fullScreenIntent launches while GLOBAL_ACTION_HOME is firing on every event.
         val now = System.currentTimeMillis()
         if (pkg == lastPackage && now - lastTriggerAt < 800) return
         lastPackage = pkg
         lastTriggerAt = now
-
         NotificationHelper.showLocked(this, repo.activeLockAlarmId, repo.activeLockLabel)
     }
 
-    override fun onInterrupt() { /* no-op */ }
+    private fun showOverlay(repo: Repository) {
+        if (overlayView != null) return // already covering the screen
+
+        val wm = getSystemService(WINDOW_SERVICE) as WindowManager
+
+        val root = FrameLayout(this).apply {
+            setBackgroundColor(Color.parseColor("#F2121212"))
+            isClickable = true
+            isFocusable = true
+        }
+
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = ViewGravity.CENTER
+            setPadding(64, 64, 64, 64)
+        }
+
+        val title = TextView(this).apply {
+            text = "This app is currently blocked by LockIn. Finish your tasks!"
+            setTextColor(Color.WHITE)
+            textSize = 20f
+            gravity = ViewGravity.CENTER
+            setPadding(0, 0, 0, 24)
+        }
+
+        val subtitle = TextView(this).apply {
+            text = "Required to release: ${repo.activeLockLabel}"
+            setTextColor(Color.LTGRAY)
+            textSize = 14f
+            gravity = ViewGravity.CENTER
+            setPadding(0, 0, 0, 48)
+        }
+
+        val button = Button(this).apply {
+            text = "Mark complete & release"
+            setOnClickListener {
+                val alarmId = repo.activeLockAlarmId
+                if (alarmId != -1L) repo.markAlarmCompleted(alarmId)
+                repo.lockEngaged = false
+                repo.activeLockLabel = ""
+                repo.activeLockAlarmId = -1
+                NotificationHelper.clear(this@LockAccessibilityService, alarmId)
+                removeOverlay()
+            }
+        }
+
+        content.addView(title)
+        content.addView(subtitle)
+        content.addView(button)
+        root.addView(
+            content,
+            FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGravity.CENTER)
+        )
+
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        )
+
+        try {
+            wm.addView(root, params)
+            overlayView = root
+        } catch (e: Exception) {
+            // If the overlay can't be added for some reason, the notification/full-screen-intent
+            // path from NotificationHelper.showLocked() below still serves as a fallback.
+        }
+    }
+
+    private fun removeOverlay() {
+        val view = overlayView ?: return
+        try {
+            val wm = getSystemService(WINDOW_SERVICE) as WindowManager
+            wm.removeView(view)
+        } catch (e: Exception) {
+            // Already removed / view not attached — nothing to do.
+        }
+        overlayView = null
+    }
+
+    override fun onInterrupt() {
+        removeOverlay()
+    }
 }
