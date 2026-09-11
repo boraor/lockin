@@ -23,6 +23,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.oruncak.lockin.NotificationHelper
+import com.oruncak.lockin.data.AlarmItem
 import com.oruncak.lockin.data.Repository
 import com.oruncak.lockin.util.isAccessibilityServiceEnabled
 import com.oruncak.lockin.util.isIgnoringBatteryOptimizations
@@ -213,19 +214,17 @@ fun SettingsScreen(repo: Repository, onSettingsChanged: () -> Unit) {
 
         SectionLabel("Debug")
         Text(
-            "Triggers a lock right now, for testing without waiting for a real alarm. Open a " +
-                "non-exempt app afterward and watch whether you get bounced back to Home.",
+            "Triggers a lock right now scoped to just ONE app you pick, so you can test whether " +
+                "the block reappears when you reopen that app after pressing Home — without " +
+                "affecting every other app on your phone while we test. This adds a \"Test Lock\" " +
+                "entry to your Alarms tab that never fires on its own — delete it there when done.",
             fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp)
         )
+        var showTestAppPicker by remember { mutableStateOf(false) }
         OutlinedButton(
-            onClick = {
-                repo.lockEngaged = true
-                repo.activeLockLabel = "Test Lock"
-                repo.activeLockAlarmId = -1L
-                NotificationHelper.showLocked(context, -1L, "Test Lock")
-            },
+            onClick = { showTestAppPicker = true },
             modifier = Modifier.fillMaxWidth()
-        ) { Text("Test Lock Now") }
+        ) { Text("Test Lock (choose one app)") }
         Spacer(Modifier.height(20.dp))
 
         SectionLabel("Habit grid colors")
@@ -253,6 +252,35 @@ fun SettingsScreen(repo: Repository, onSettingsChanged: () -> Unit) {
             onSave = { picked ->
                 repo.updateSettings { it.copy(exemptPackages = picked) }
                 showExemptPicker = false
+            }
+        )
+    }
+    if (showTestAppPicker) {
+        AppPickerSheet(
+            title = "Test Lock",
+            subtitle = "Pick the ONE app to test-block (e.g. Gallery)",
+            apps = remember { repo.installedApps() },
+            initiallySelected = emptySet(),
+            onDismiss = { showTestAppPicker = false },
+            onSave = { picked ->
+                val pkg = picked.firstOrNull()
+                if (pkg != null) {
+                    // A throwaway alarm scoped to just this one package, so the accessibility
+                    // service's "is this app restricted?" lookup (which reads from repo.alarms)
+                    // treats ONLY this app as blocked — everything else, Home included, stays
+                    // free, matching what we're specifically trying to verify right now.
+                    val testAlarm = AlarmItem(
+                        id = -999L, hour = 0, minute = 0, label = "Test Lock",
+                        days = emptySet(), enabled = true, allApps = false,
+                        restrictedPackages = setOf(pkg)
+                    )
+                    repo.saveAlarm(testAlarm)
+                    repo.activeLockAlarmId = -999L
+                    repo.activeLockLabel = "Test Lock"
+                    repo.lockEngaged = true
+                    NotificationHelper.showLocked(context, -999L, "Test Lock")
+                }
+                showTestAppPicker = false
             }
         )
     }

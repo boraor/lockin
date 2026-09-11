@@ -1,6 +1,7 @@
 package com.oruncak.lockin.service
 
 import android.accessibilityservice.AccessibilityService
+import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.view.Gravity as ViewGravity
@@ -35,6 +36,16 @@ class LockAccessibilityService : AccessibilityService() {
     private var lastPackage: String? = null
     private var overlayView: View? = null
 
+    /**
+     * The phone's own home-screen app. This is always allowed regardless of lock settings — the
+     * block is meant to stop you opening a SPECIFIC restricted app, not trap you off the launcher
+     * entirely. Resolved lazily/once since it never changes at runtime for a given device.
+     */
+    private val launcherPackage: String? by lazy {
+        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+        packageManager.resolveActivity(intent, 0)?.activityInfo?.packageName
+    }
+
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val pkg = (event?.packageName?.toString() ?: rootInActiveWindow?.packageName?.toString()) ?: return
 
@@ -53,6 +64,11 @@ class LockAccessibilityService : AccessibilityService() {
         val settings = repo.settings.value
         val activeAlarm = repo.alarms.value.firstOrNull { it.id == repo.activeLockAlarmId }
         val restricted = when {
+            // Always allow the home screen and system UI (notification shade, recents, quick
+            // settings) — otherwise even navigating around a blocked app looks like the phone is
+            // fully frozen instead of just that one app being off-limits.
+            pkg == launcherPackage -> false
+            pkg == "com.android.systemui" -> false
             settings.exemptPackages.contains(pkg) -> false
             activeAlarm == null -> true
             activeAlarm.allApps -> true
@@ -138,9 +154,12 @@ class LockAccessibilityService : AccessibilityService() {
         try {
             wm.addView(root, params)
             overlayView = root
+            Toast.makeText(this, "LockIn: overlay added", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
-            // If the overlay can't be added for some reason, the notification/full-screen-intent
-            // path from NotificationHelper.showLocked() below still serves as a fallback.
+            // Surface the failure instead of silently swallowing it — a swallowed exception here
+            // looks IDENTICAL to "the code isn't running at all" from the user's side, which is
+            // exactly the ambiguity that's made this bug hard to pin down over several rounds.
+            Toast.makeText(this, "LockIn: overlay FAILED - ${e.javaClass.simpleName}: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 
