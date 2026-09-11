@@ -24,6 +24,11 @@ jobs:
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.7'
+          # GitHub's Actions cache service has intermittent outages ("Our services aren't
+          # available right now") that can abort the whole build before it even compiles
+          # anything. The cache is a speed optimization, not a requirement — disabling it
+          # trades a slightly slower build for one that isn't at the mercy of that outage.
+          cache-disabled: true
 
       - name: Build debug APK
         run: gradle assembleDebug --no-daemon
