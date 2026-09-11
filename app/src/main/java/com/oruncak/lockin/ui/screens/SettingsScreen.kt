@@ -35,6 +35,7 @@ fun SettingsScreen(repo: Repository, onSettingsChanged: () -> Unit) {
     val account by repo.account.collectAsState()
     var showAuth by remember { mutableStateOf(false) }
     var showExemptPicker by remember { mutableStateOf(false) }
+    var showTestAppPicker by remember { mutableStateOf(false) }
 
     Column(
         Modifier.fillMaxSize().padding(20.dp).verticalScroll(rememberScrollState())
@@ -220,7 +221,6 @@ fun SettingsScreen(repo: Repository, onSettingsChanged: () -> Unit) {
                 "entry to your Alarms tab that never fires on its own — delete it there when done.",
             fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp)
         )
-        var showTestAppPicker by remember { mutableStateOf(false) }
         OutlinedButton(
             onClick = { showTestAppPicker = true },
             modifier = Modifier.fillMaxWidth()
